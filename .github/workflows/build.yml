@@ -42,6 +42,9 @@ jobs:
   build-linux-appimage:
     name: Build Linux AppImage
     runs-on: ubuntu-latest
+    env:
+          DEBIAN_FRONTEND: noninteractive
+          NEEDRESTART_MODE: a
 
     steps:
       - name: Checkout Code
@@ -54,10 +57,23 @@ jobs:
           cache: 'pip'
 
       - name: Install System Dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+          NEEDRESTART_MODE: a
         run: |
-          sudo apt-get install -y libxcb-cursor0 libglu1-mesa appstream
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxcb-cursor0 \
+            libglu1-mesa \
+            appstream \
+            libfuse2
+          
+          # Download appimagetool and extract it to bypass FUSE requirements in containerized environments
           wget -q https://github.com/AppImage/AppImageKit/releases/download/13/appimagetool-x86_64.AppImage -O appimagetool
           chmod +x appimagetool
+          ./appimagetool --appimage-extract
+          sudo mv squashfs-root /opt/appimagetool
+          sudo ln -s /opt/appimagetool/AppRun /usr/local/bin/appimagetool
 
       - name: Install Nvidia PyIndex
         continue-on-error: true
@@ -101,6 +117,8 @@ jobs:
           convert -size 256x256 xc:blue AppDir/efstrgenerator.png || touch AppDir/efstrgenerator.png
 
       - name: Build AppImage
+        env:
+          ARCH: x86_64
         run: |
           ./appimagetool AppDir EfStrGenerator-x86_64.AppImage
 
