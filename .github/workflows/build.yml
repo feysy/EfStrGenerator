@@ -1,5 +1,8 @@
 name: Build & Release Multiplatform Executables
 
+permissions:
+  contents: write
+
 on:
   push:
     tags:
