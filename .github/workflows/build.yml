@@ -71,10 +71,7 @@ jobs:
           # Download appimagetool
           wget -q https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage -O appimagetool
           chmod +x appimagetool
-
-          # Extract appimagetool safely without FUSE using unsquashfs
-          unsquashfs -d /opt/appimagetool-extracted appimagetool
-          sudo ln -s /opt/appimagetool-extracted/AppRun /usr/local/bin/appimagetool
+          sudo mv appimagetool /usr/local/bin/appimagetool
 
       - name: Install Nvidia PyIndex
         continue-on-error: true
