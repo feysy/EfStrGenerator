@@ -55,12 +55,12 @@ jobs:
 
       - name: Install System Dependencies
         run: |
-          sudo apt-get update
           sudo apt-get install -y libxcb-cursor0 libglu1-mesa appstream
           wget -q https://github.com/AppImage/AppImageKit/releases/download/13/appimagetool-x86_64.AppImage -O appimagetool
           chmod +x appimagetool
 
       - name: Install Nvidia PyIndex
+        continue-on-error: true
         run: |
           pip install nvidia-pyindex
 
@@ -125,6 +125,7 @@ jobs:
           cache: 'pip'
 
       - name: Install Nvidia PyIndex
+        continue-on-error: true
         run: |
           pip install nvidia-pyindex
 
