@@ -38,8 +38,13 @@ source venv/bin/activate
 ```
 #### 3. Install Dependencies
 
+Install the default Faster-Whisper + stable-ts pipeline dependencies:
 ```bash
 pip install -r requirements.txt
+```
+Or, if you want to use the CrisperWhisper pipeline (Linux-only):
+```bash
+pip install -r requirements_crisperwhisper.txt
 ```
 #### 4. Launch
 ```bash
@@ -61,35 +66,40 @@ python build_app.py
 ```
 The resulting executable will be created inside the `dist/` directory.
 ### CI/CD
-The GitHub Actions workflow `.github/workflows/build.yml` automatically builds binaries for Windows, Linux, and macOS on pushes to `main` or version tags (e.g. `v1.0.0`).
+- The GitHub Actions workflow `.github/workflows/build.yml` automatically builds binaries for Windows, Linux, and macOS on pushes to `main` or version tags (e.g. `v1.0.0`).
 ---
 ## 📂 Project Structure
 ```
 EfStrGenerator/
-├── main.py              # Entry point: desktop GUI
-├── api.py               # Entry point: FastAPI server
-├── worker.py            # Entry point: RabbitMQ consumer
-├── build_app.py         # PyInstaller packaging script
-├── requirements.txt     # Linux desktop app dependencies
-├── Dockerfile.api       # Lightweight API container (python:3.11-slim)
-├── Dockerfile.worker    # GPU worker container (PyTorch + CUDA)
-├── docker-compose.yml
+├── main.py                     # Entry point: desktop GUI
+├── api.py                      # Entry point: FastAPI server
+├── worker.py                   # Entry point: RabbitMQ consumer
+├── build_app.py                # PyInstaller packaging script
+├── EfStrGenerator.spec         # PyInstaller spec file configuration
+├── requirements.txt            # Main dependencies (Faster-Whisper / stable-ts)
+├── requirements_crisperwhisper.txt # CrisperWhisper specific dependencies
+├── Dockerfile.api              # Lightweight API container (python:3.11-slim)
+├── Dockerfile.worker           # GPU worker container (PyTorch + CUDA)
+├── docker-compose.yml          # Docker compose file for backend orchestration
+├── .gitignore                  # Git ignore rules
 └── src/
-    ├── constants.py         # LANGUAGE_MAPPING
-    ├── audio.py             # Audio extraction via FFmpeg
-    ├── audio_splitter.py    # Silence-based audio chunking
-    ├── srt_formatter.py     # SRT timestamp formatting and block builder
-    ├── transcriber.py       # Local transcription pipeline (Linux)
-    ├── api_client.py        # All FastAPI HTTP calls (shared by GUI + worker)
-    ├── backend.py           # Docker Compose init (Windows)
-    ├── gui.py               # Desktop GUI (Linux: full pipeline, Windows: REST client)
-    ├── watchdog.py          # Docker teardown watchdog (Windows)
-    ├── database.py          # SQLAlchemy ORM models + session
-    ├── schemas.py           # Pydantic request/response schemas
-    ├── queue.py             # RabbitMQ publisher
-    ├── routes.py            # FastAPI route handlers
-    ├── transcription.py     # Worker transcription pipeline (Docker)
-    └── worker_consumer.py   # RabbitMQ consumer loop
+    ├── __init__.py
+    ├── constants.py            # LANGUAGE_MAPPING
+    ├── audio.py                # Audio extraction via FFmpeg
+    ├── audio_splitter.py       # Silence-based audio chunking
+    ├── srt_formatter.py        # SRT timestamp formatting and block builder
+    ├── transcriber.py          # Local transcription pipeline (Faster-Whisper / stable-ts)
+    ├── transcriber_crisper.py  # Local transcription pipeline (CrisperWhisper)
+    ├── api_client.py           # All FastAPI HTTP calls (shared by GUI + worker)
+    ├── backend.py              # Docker Compose init (Windows)
+    ├── gui.py                  # Desktop GUI (Linux: local pipeline, Windows: REST client)
+    ├── watchdog.py             # Docker teardown watchdog (Windows)
+    ├── database.py             # SQLAlchemy ORM models + session
+    ├── schemas.py              # Pydantic request/response schemas
+    ├── queue.py                # RabbitMQ publisher
+    ├── routes.py               # FastAPI route handlers
+    ├── transcription.py        # Worker transcription pipeline (Docker)
+    └── worker_consumer.py      # RabbitMQ consumer loop
 ```
 ---
 ## 📄 License
