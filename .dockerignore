@@ -1,0 +1,24 @@
+# Python virtual environments
+venv/
+.venv/
+env/
+
+# Python cache & compiled files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Git history (saves a lot of build context size)
+.git/
+.gitignore
+
+# Database or temporary runtime files
+*.db
+*.sqlite3
+logs/
+
+# Docker/IDE settings
+.vscode/
+.idea/

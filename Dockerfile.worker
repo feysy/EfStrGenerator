@@ -1,0 +1,36 @@
+FROM pytorch/pytorch:2.13.0-cuda12.6-cudnn9-runtime
+
+# Install system dependencies
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    git \
+    python3.12-venv \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
+
+RUN python3 -m venv --system-site-packages /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+RUN pip install --upgrade pip
+
+# Install python dependencies
+RUN pip install --no-cache-dir \
+    pika \
+    requests \
+    sentencepiece \
+    transformers \
+    stable-ts \
+    faster-whisper \
+    imageio-ffmpeg
+#crisperwhisper[ct2]==2.0.1 \
+
+# Copy application source code
+COPY . /workspace
+
+# Set Python path to ensure module resolution
+ENV PYTHONPATH=/workspace
+
+# Default command (overridden in compose)
+CMD ["python", "worker.py"]

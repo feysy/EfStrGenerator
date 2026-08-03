@@ -1,0 +1,23 @@
+FROM python:3.11-slim
+
+WORKDIR /workspace
+
+# Install system dependencies if API needs ffmpeg or git
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install ONLY API requirements
+RUN pip install --no-cache-dir \
+    fastapi \
+    uvicorn \
+    pika \
+    sqlalchemy \
+    requests
+
+COPY . /workspace
+
+ENV PYTHONPATH=/workspace
+
+CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]
