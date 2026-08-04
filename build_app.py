@@ -2,24 +2,34 @@ import os
 import sys
 import subprocess
 import PyInstaller.__main__
-import customtkinter
+
 
 def build_executable():
     print("Building EfStrGenerator executable...")
-    
-    # Get customtkinter folder location
-    ctk_path = os.path.dirname(customtkinter.__file__)
-    sep = ";" if sys.platform == "win32" else ":"
-    add_data_ctk = f"{ctk_path}{sep}customtkinter"
 
     args = [
         "main.py",
         "--name=EfStrGenerator",
         "--onedir",
         "--windowed",
-        f"--add-data={add_data_ctk}",
-        "--hidden-import=crisperwhisper",
+        "--collect-data=customtkinter",
         "--hidden-import=imageio_ffmpeg",
+        "--hidden-import=stable_whisper",
+        "--hidden-import=faster_whisper",
+        "--strip",
+        # torchaudio IS needed (stable-ts uses it for Silero VAD resampling) --
+        # only torchvision is genuinely unused
+        "--exclude-module=torchvision",
+        "--exclude-module=matplotlib",
+        "--exclude-module=pandas",
+        "--exclude-module=IPython",
+        "--exclude-module=notebook",
+        "--exclude-module=jupyter",
+        "--exclude-module=sympy",
+        "--exclude-module=pytest",
+        "--exclude-module=nvidia",
+        "--exclude-module=nvidia.cublas",
+        "--exclude-module=nvidia.cudnn",
         "--clean",
         "-y"
     ]
@@ -28,5 +38,7 @@ def build_executable():
     PyInstaller.__main__.run(args)
     print("Build complete! Executable is located in the dist/ directory.")
 
+
 if __name__ == "__main__":
     build_executable()
+ 

@@ -3,5 +3,4 @@ stable-ts==2.19.1
 customtkinter==6.0.0
 imageio-ffmpeg==0.6.0
 pyinstaller==6.21.0
-torch==2.13.0
 requests==2.34.2

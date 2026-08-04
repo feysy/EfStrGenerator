@@ -1,8 +1,25 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+# CPU-only torch -- GPU inference happens through ctranslate2, which has its
+# own CUDA runtime. Torch is only used by stable-ts for Silero VAD/alignment
+# math on CPU, so the CUDA build (and its duplicate cuBLAS/cuDNN/cuFFT/etc.)
+# would just be dead weight.
+torch==2.13.0+cpu
+
+# faster-whisper backend for stable-ts, without pulling in the full
+# openai-whisper package (and its tiktoken/numba/llvmlite chain), which
+# transcriber.py never uses anyway.
+stable-ts-whisperless==2.19.1
+
 faster-whisper==1.2.1
-stable-ts==2.19.1
 customtkinter==6.0.0
 imageio-ffmpeg==0.6.0
 pyinstaller==6.21.0
-torch==2.13.0
 requests==2.34.2
-nvidia-cublas-cu12==12.9.2.10
+
+# ctranslate2 dlopen()s these by name at runtime for GPU execution -- they're
+# not a transitive dependency of anything above once torch is CPU-only, so
+# they are not packaged because they are too large.
+# To run with GPU acceleration, you can install them manually on your host:
+# nvidia-cublas-cu12
+# nvidia-cudnn-cu12==9.*

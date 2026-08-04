@@ -1,18 +1,20 @@
-import os
-import customtkinter
+# -*- mode: python ; coding: utf-8 -*-
+from PyInstaller.utils.hooks import collect_data_files
 
-ctk_path = os.path.dirname(customtkinter.__file__)
+datas = []
+datas += collect_data_files('customtkinter')
+
 
 a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[(ctk_path, 'customtkinter')],
-    hiddenimports=['crisperwhisper', 'imageio_ffmpeg'],
+    datas=datas,
+    hiddenimports=['imageio_ffmpeg', 'stable_whisper', 'faster_whisper'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=['torchvision', 'matplotlib', 'pandas', 'IPython', 'notebook', 'jupyter', 'sympy', 'pytest', 'nvidia', 'nvidia.cublas', 'nvidia.cudnn'],
     noarchive=False,
     optimize=0,
 )
@@ -26,7 +28,7 @@ exe = EXE(
     name='EfStrGenerator',
     debug=False,
     bootloader_ignore_signals=False,
-    strip=False,
+    strip=True,
     upx=True,
     console=False,
     disable_windowed_traceback=False,
@@ -39,7 +41,7 @@ coll = COLLECT(
     exe,
     a.binaries,
     a.datas,
-    strip=False,
+    strip=True,
     upx=True,
     upx_exclude=[],
     name='EfStrGenerator',

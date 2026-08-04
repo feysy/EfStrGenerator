@@ -2,6 +2,8 @@
 __pycache__/
 *.py[cod]
 *$py.class
+*.AppImage
+appimagetool
 
 # C extensions
 *.so
@@ -11,6 +13,7 @@ __pycache__/
 build/
 develop-eggs/
 dist/
+AppDir/
 downloads/
 eggs/
 .eggs/

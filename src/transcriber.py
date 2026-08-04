@@ -1,4 +1,3 @@
-import torch
 from typing import Callable, Optional, Dict, Any
 
 from src.audio import is_video_file, extract_audio_from_video, cleanup_temp_file
@@ -47,10 +46,10 @@ def transcribe_core(
                 "stable-ts is not installed. Please run: pip install stable-ts faster-whisper"
             )
 
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        compute_type = "float16" if device == "cuda" else "int8"
+        device = "cuda"
+        compute_type = "float16"
         
-        update_progress("Device set to: " + device + " Compute type: " + compute_type, 0.38)
+        update_progress("Attempting GPU (CUDA) load...", 0.38)
 
         # Load faster-whisper model via stable-ts wrapper
         try:

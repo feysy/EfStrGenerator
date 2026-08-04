@@ -3,11 +3,13 @@ import sys
 import traceback
 import threading
 import subprocess
-import tkinter as tk
 import time
 import requests
 from tkinter import filedialog, messagebox
 import customtkinter as ctk
+import glob
+import ctypes
+import ctypes.util
 
 # Monkeypatch CTkScrollableFrame to handle cases where event.widget is a string (known Tkinter/Linux bug)
 original_check_if_valid_scroll = ctk.CTkScrollableFrame._check_if_valid_scroll
@@ -21,6 +23,7 @@ def patched_check_if_valid_scroll(self, widget):
     return original_check_if_valid_scroll(self, widget)
 
 ctk.CTkScrollableFrame._check_if_valid_scroll = patched_check_if_valid_scroll
+ctk.DrawEngine.preferred_drawing_method = "circle_shapes"
 
 
 from src.constants import LANGUAGE_MAPPING
@@ -31,6 +34,132 @@ from src.api_client import submit_job, poll_job
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
+ctk.set_widget_scaling(1)
+
+
+def check_and_setup_cuda_libraries():
+    """
+    Checks if required cuBLAS and cuDNN shared libraries are available.
+    When found, preloads them via ctypes.CDLL(RTLD_GLOBAL) so that
+    ctranslate2's dlopen() calls succeed within the current process.
+    Also updates LD_LIBRARY_PATH for any child processes.
+    Returns a tuple (cublas_found, cudnn_found).
+    """
+    cublas_found = False
+    cudnn_found = False
+    cublas_path = None
+    cudnn_path = None
+
+    def _add_to_ld_library_path(directory):
+        """Helper to prepend a directory to LD_LIBRARY_PATH (for child processes)."""
+        ld_path = os.environ.get("LD_LIBRARY_PATH", "")
+        if directory not in ld_path.split(":"):
+            if ld_path:
+                os.environ["LD_LIBRARY_PATH"] = f"{directory}:{ld_path}"
+            else:
+                os.environ["LD_LIBRARY_PATH"] = directory
+
+    # 1. Check user-local directory ~/.local/share/EfStrGenerator/cuda_libs
+    user_cuda_dir = os.path.expanduser("~/.local/share/EfStrGenerator/cuda_libs")
+    if os.path.isdir(user_cuda_dir):
+        user_cublas = glob.glob(os.path.join(user_cuda_dir, "libcublas.so*"))
+        user_cudnn = glob.glob(os.path.join(user_cuda_dir, "libcudnn.so*"))
+        if user_cublas or user_cudnn:
+            _add_to_ld_library_path(user_cuda_dir)
+        if user_cublas and not cublas_found:
+            cublas_path = user_cublas[0]
+            cublas_found = True
+        if user_cudnn and not cudnn_found:
+            cudnn_path = user_cudnn[0]
+            cudnn_found = True
+
+    # 2. Check if they are findable by the system linker via ctypes
+    if not cublas_found:
+        for name in ["cublas", "cublas.so.12", "libcublas.so.12", "cublas.so.11", "libcublas.so.11"]:
+            result = ctypes.util.find_library(name)
+            if result is not None:
+                cublas_found = True
+                cublas_path = result
+                break
+
+    if not cudnn_found:
+        for name in ["cudnn", "cudnn.so.9", "libcudnn.so.9", "cudnn.so.8", "libcudnn.so.8"]:
+            result = ctypes.util.find_library(name)
+            if result is not None:
+                cudnn_found = True
+                cudnn_path = result
+                break
+
+    # 3. Check the directory of the running application / sys._MEIPASS
+    search_dirs = []
+    if getattr(sys, "frozen", False):
+        if hasattr(sys, "_MEIPASS"):
+            search_dirs.append(sys._MEIPASS)
+        search_dirs.append(os.path.dirname(sys.executable))
+    else:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        search_dirs.append(script_dir)
+        search_dirs.append(os.path.abspath(os.path.join(script_dir, "..")))
+
+    for d in search_dirs:
+        if not cublas_found:
+            matches = glob.glob(os.path.join(d, "libcublas.so*"))
+            if matches:
+                cublas_path = matches[0]
+                cublas_found = True
+                _add_to_ld_library_path(d)
+        if not cudnn_found:
+            matches = glob.glob(os.path.join(d, "libcudnn.so*"))
+            if matches:
+                cudnn_path = matches[0]
+                cudnn_found = True
+                _add_to_ld_library_path(d)
+
+    # 4. Check python environment packages (nvidia-cublas-cu12, nvidia-cudnn-cu12)
+    if not cublas_found:
+        try:
+            import nvidia.cublas
+            for path in getattr(nvidia.cublas, "__path__", []):
+                matches = glob.glob(os.path.join(path, "lib", "libcublas.so*"))
+                if matches:
+                    cublas_path = matches[0]
+                    cublas_found = True
+                    _add_to_ld_library_path(os.path.join(path, "lib"))
+                    break
+        except ImportError:
+            pass
+
+    if not cudnn_found:
+        try:
+            import nvidia.cudnn
+            for path in getattr(nvidia.cudnn, "__path__", []):
+                matches = glob.glob(os.path.join(path, "lib", "libcudnn.so*"))
+                if matches:
+                    cudnn_path = matches[0]
+                    cudnn_found = True
+                    _add_to_ld_library_path(os.path.join(path, "lib"))
+                    break
+        except ImportError:
+            pass
+
+    # 5. Preload .so files into the current process so ctranslate2's dlopen() finds them.
+    #    Setting LD_LIBRARY_PATH alone is NOT enough — the dynamic linker only reads it
+    #    at process startup, not after os.environ is modified at runtime.
+    if cublas_found and cublas_path:
+        try:
+            ctypes.CDLL(cublas_path, mode=ctypes.RTLD_GLOBAL)
+        except OSError as e:
+            print(f"WARNING: Found cuBLAS at {cublas_path} but failed to preload: {e}")
+            cublas_found = False
+
+    if cudnn_found and cudnn_path:
+        try:
+            ctypes.CDLL(cudnn_path, mode=ctypes.RTLD_GLOBAL)
+        except OSError as e:
+            print(f"WARNING: Found cuDNN at {cudnn_path} but failed to preload: {e}")
+            cudnn_found = False
+
+    return cublas_found, cudnn_found
 
 
 class EfStrGeneratorApp(ctk.CTk):
@@ -38,8 +167,8 @@ class EfStrGeneratorApp(ctk.CTk):
         super().__init__()
 
         self.title("EfStrGenerator - AI Subtitle Generator")
-        self.geometry("760x640")
-        self.minsize(680, 560)
+        self.geometry("1000x800")
+        # self.minsize(760, 640)
 
         self.is_processing = False
 
@@ -48,6 +177,8 @@ class EfStrGeneratorApp(ctk.CTk):
         if sys.platform == "win32":
             self.generate_btn.configure(state="disabled", text="⏳ Connecting to backend...")
             threading.Thread(target=self._initialize_backend, daemon=True).start()
+        elif sys.platform.startswith("linux"):
+            self.after(100, self._check_gpu_dependencies)
 
     # ------------------------------------------------------------------
     # Backend init (Windows only)
@@ -93,11 +224,11 @@ class EfStrGeneratorApp(ctk.CTk):
         self.grid_rowconfigure(1, weight=1)
 
         self._build_header()
-        body_frame = self._build_body()
-        self._build_file_card(body_frame)
-        self._build_config_card(body_frame)
-        self._build_progress_card(body_frame)
-        self._build_buttons(body_frame)
+        self.body_frame = self._build_body()
+        self._build_file_card(self.body_frame)
+        self._build_config_card(self.body_frame)
+        self._build_progress_card(self.body_frame)
+        self._build_buttons(self.body_frame)
 
     def _build_header(self):
         header_frame = ctk.CTkFrame(self, corner_radius=0, fg_color=("gray85", "gray14"))
@@ -244,7 +375,7 @@ class EfStrGeneratorApp(ctk.CTk):
         ]
         filename = filedialog.askopenfilename(title="Select Media File", filetypes=filetypes)
         if filename:
-            self.input_entry.delete(0, tk.END)
+            self.input_entry.delete(0, "end")
             self.input_entry.insert(0, filename)
             self._auto_generate_output_path(filename)
 
@@ -252,7 +383,7 @@ class EfStrGeneratorApp(ctk.CTk):
         if not input_path:
             return
         base_name, _ = os.path.splitext(input_path)
-        self.output_entry.delete(0, tk.END)
+        self.output_entry.delete(0, "end")
         self.output_entry.insert(0, f"{base_name}.srt")
 
     def _browse_output_file(self):
@@ -265,7 +396,7 @@ class EfStrGeneratorApp(ctk.CTk):
             initialfile=os.path.basename(current_val) if current_val else "subtitles.srt",
         )
         if filename:
-            self.output_entry.delete(0, tk.END)
+            self.output_entry.delete(0, "end")
             self.output_entry.insert(0, filename)
 
     # ------------------------------------------------------------------
@@ -422,6 +553,172 @@ class EfStrGeneratorApp(ctk.CTk):
             subprocess.run(["open", folder])
         else:
             subprocess.run(["xdg-open", folder])
+
+    # ------------------------------------------------------------------
+    # GPU dependency check (Linux only)
+    # ------------------------------------------------------------------
+
+    def _check_gpu_dependencies(self):
+        cublas_ok, cudnn_ok = check_and_setup_cuda_libraries()
+        if not cublas_ok or not cudnn_ok:
+            missing = []
+            if not cublas_ok:
+                missing.append("cuBLAS (libcublas.so)")
+            if not cudnn_ok:
+                missing.append("cuDNN (libcudnn.so)")
+            
+            missing_str = " and ".join(missing)
+            warning_msg = (
+                f"NVIDIA {missing_str} libraries were not found on your system.\n"
+                "GPU acceleration for transcription will not be available, and the application "
+                "will fall back to CPU (which is significantly slower).\n"
+                "To enable GPU acceleration, please install nvidia-cublas-cu12 and nvidia-cudnn-cu12, "
+                "or place their .so files in ~/.local/share/EfStrGenerator/cuda_libs/."
+            )
+            print(f"WARNING: {warning_msg.replace(chr(10), ' ')}")
+            
+            banner_msg = (
+                f"⚠️ GPU Acceleration Unavailable: {missing_str} not installed. Performance will be slower.\n"
+                "👉 Click here to automatically download and install these libraries (requires internet)."
+            )
+            self._show_warning_banner(banner_msg)
+
+    def _show_warning_banner(self, message):
+        self.warning_frame = ctk.CTkFrame(
+            self,
+            corner_radius=0,
+            fg_color="#ea580c",  # Premium dark orange warning color
+            cursor="hand2"
+        )
+        self.warning_frame.grid(row=1, column=0, sticky="ew")
+        self.warning_frame.grid_columnconfigure(0, weight=1)
+        
+        warning_lbl = ctk.CTkLabel(
+            self.warning_frame,
+            text=message,
+            font=ctk.CTkFont(family="Inter", size=13, weight="bold"),
+            text_color="#ffffff",
+            anchor="center",
+            justify="center"
+        )
+        warning_lbl.grid(row=0, column=0, padx=16, pady=8, sticky="ew")
+        
+        # Configure dynamic wraplength to prevent text cropping on resize
+        def update_wraplength(event):
+            warning_lbl.configure(wraplength=event.width - 32)
+            
+        self.warning_frame.bind("<Configure>", update_wraplength)
+        
+        # Bind click events
+        warning_lbl.bind("<Button-1>", lambda e: self._start_cuda_download(warning_lbl))
+        
+        # Shift body frame to row 2
+        self.grid_rowconfigure(1, weight=0)
+        self.grid_rowconfigure(2, weight=1)
+        self.body_frame.grid(row=2, column=0, sticky="nsew", padx=24, pady=16)
+
+    def _start_cuda_download(self, warning_lbl):
+        # Unbind click events to prevent duplicate clicks
+        self.warning_frame.unbind("<Button-1>")
+        warning_lbl.unbind("<Button-1>")
+        
+        # Change cursor to default to show it is no longer clickable
+        self.warning_frame.configure(cursor="")
+        warning_lbl.configure(cursor="")
+        
+        # Spawn daemon thread
+        threading.Thread(
+            target=self._download_and_extract_cuda_thread,
+            args=(warning_lbl,),
+            daemon=True
+        ).start()
+
+    def _download_and_extract_cuda_thread(self, warning_lbl):
+        import zipfile
+        import shutil
+        
+        def update_status(text):
+            self.after(0, lambda: warning_lbl.configure(text=text))
+            
+        try:
+            user_cuda_dir = os.path.expanduser("~/.local/share/EfStrGenerator/cuda_libs")
+            os.makedirs(user_cuda_dir, exist_ok=True)
+            
+            packages = [
+                ("nvidia-cublas-cu12", "12.9.2.10"),
+                ("nvidia-cudnn-cu12", "9.24.0.43")
+            ]
+            
+            for package_name, version in packages:
+                update_status(f"⏳ Querying PyPI for {package_name}...")
+                
+                # Fetch JSON metadata from PyPI
+                api_url = f"https://pypi.org/pypi/{package_name}/{version}/json"
+                resp = requests.get(api_url, timeout=15)
+                resp.raise_for_status()
+                metadata = resp.json()
+                
+                # Find the direct wheel download URL matching manylinux and x86_64
+                download_url = None
+                for u in metadata.get("urls", []):
+                    if u.get("packagetype") == "bdist_wheel" and "manylinux" in u.get("filename", "") and "x86_64" in u.get("filename", ""):
+                        download_url = u["url"]
+                        break
+                        
+                if not download_url:
+                    raise RuntimeError(f"Could not find a suitable wheel for {package_name} on PyPI.")
+                
+                # Download wheel file to target dir
+                temp_whl_path = os.path.join(user_cuda_dir, f"temp_{package_name}.whl")
+                update_status(f"⏳ Downloading {package_name} (0%)...")
+                
+                with requests.get(download_url, stream=True, timeout=30) as r:
+                    r.raise_for_status()
+                    total_size = int(r.headers.get("content-length", 0))
+                    downloaded = 0
+                    
+                    with open(temp_whl_path, "wb") as f:
+                        for chunk in r.iter_content(chunk_size=65536):
+                            if chunk:
+                                f.write(chunk)
+                                downloaded += len(chunk)
+                                if total_size > 0:
+                                    percent = int((downloaded / total_size) * 100)
+                                    update_status(f"⏳ Downloading {package_name} ({percent}%)...")
+                                    
+                # Extract .so files
+                update_status(f"⏳ Extracting shared libraries from {package_name}...")
+                with zipfile.ZipFile(temp_whl_path, "r") as zip_ref:
+                    for member in zip_ref.infolist():
+                        basename = os.path.basename(member.filename)
+                        if not basename:
+                            continue
+                        if ".so" in basename:
+                            target_path = os.path.join(user_cuda_dir, basename)
+                            with zip_ref.open(member) as source, open(target_path, "wb") as target:
+                                shutil.copyfileobj(source, target)
+                                
+                # Cleanup temp wheel file
+                os.remove(temp_whl_path)
+                
+            update_status("⚡ All libraries installed successfully! Restarting application...")
+            time.sleep(2)
+            
+            # Restart the application
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+            
+        except Exception as e:
+            traceback.print_exc()
+            err_msg = f"❌ Installation failed: {str(e)}\n👉 Click here to try again."
+            update_status(err_msg)
+            
+            # Restore cursor and rebind click events to allow retry
+            self.after(0, lambda: (
+                self.warning_frame.configure(cursor="hand2"),
+                warning_lbl.configure(cursor="hand2"),
+                self.warning_frame.bind("<Button-1>", lambda e: self._start_cuda_download(warning_lbl)),
+                warning_lbl.bind("<Button-1>", lambda e: self._start_cuda_download(warning_lbl))
+            ))
 
 
 def main():
